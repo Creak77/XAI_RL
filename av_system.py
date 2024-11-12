@@ -117,16 +117,17 @@ class CarEnv:
         d3, v3 = self.initial_distance[2], self.initial_velocity[2]
         self.state = np.array([d1, v1, d2, v2, d3, v3])
         self.t = 0
+        print(self.state)
         return self.state
     
     def observe(self, car_id):
         if car_id == 0:
-            # Front car observes its own speed and the distance to the middle car
+            # rear car observes its own speed and the distance to the middle car
             distance_to_middle = self.state[2] - self.state[0]
             velocity = self.state[1]
             observation = np.array([distance_to_middle, velocity])
         elif car_id == 2:
-            # Rear car observes its own speed and the distance to the middle car
+            # front car observes its own speed and the distance to the middle car
             distance_to_middle = self.state[4] - self.state[2]
             velocity = self.state[5]
             observation = np.array([distance_to_middle, velocity])
@@ -169,8 +170,8 @@ class CarEnv:
         self.state = next_state
         self.t += self.dt
         # Get observations for front and rear cars
-        obs_front = self.observe(car_id=0)
-        obs_rear = self.observe(car_id=2)
+        obs_rear = self.observe(car_id=0)
+        obs_front = self.observe(car_id=2)
         # Rewards for front and rear agents
         reward_front = self.reward_front()
         reward_rear = self.reward_rear()
@@ -179,7 +180,7 @@ class CarEnv:
 
     
     def reward_front(self):
-        collision_with_middle = (self.state[2] - self.state[0]) < 4.9
+        collision_with_middle = (self.state[4] - self.state[2]) < 4.9
         stopped = self.state[1] < 0.5
         reward = 0
         if stopped:
@@ -192,7 +193,7 @@ class CarEnv:
     
     def reward_rear(self):
         detect_front_stopped = self.state[1] < 0.5
-        collision_with_middle = (self.state[4] - self.state[2]) < 4.9
+        collision_with_middle = (self.state[2] - self.state[0]) < 4.9
         slowing_down = self.state[5] < self.initial_velocity[2]
         reward = 0
         if detect_front_stopped and slowing_down:
@@ -319,6 +320,7 @@ class DDPG_Car:
 def train(num_episodes=100):
     front_car = DDPG_Car(state_dim=2, action_dim=1)
     rear_car = DDPG_Car(state_dim=2, action_dim=1)
+    safe_distance = 30
     # use tqdm for progress bar
     for episode in tqdm.tqdm(range(num_episodes)):
         #initial_distance = [_ for _ in np.random.randint(0, 170, 3)]
@@ -336,18 +338,12 @@ def train(num_episodes=100):
         rear_car_reward = 0
         state = env.reset()
         while not done:
-            # front car
-            obs_front = env.observe(car_id=0)
-            a1 = front_car.select_action(obs_front)
-            # ego car
-            safe_distance = 30
-            distance_from_front = state[2] - state[0]
+            obs_rear = env.observe(car_id=0)
+            obs_front = env.observe(car_id=2)
+            distance_from_front = state[4] - state[2]
             error = distance_from_front - safe_distance
-            # print(f'Distance from front: {distance_from_front}')
+            a1 = front_car.select_action(obs_front)
             a2 = pid.control(error, dt)
-            # print(f'Acceleration: {a2}')
-            # rear car
-            obs_rear = env.observe(car_id=2)
             a3 = rear_car.select_action(obs_rear)
             actions = [a1, a2, a3]
 
