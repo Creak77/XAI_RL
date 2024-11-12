@@ -127,7 +127,7 @@ class CarEnv:
             observation = np.array([distance_to_middle, velocity])
         elif car_id == 2:
             # Rear car observes its own speed and the distance to the middle car
-            distance_to_middle = self.state[2] - self.state[4]
+            distance_to_middle = self.state[4] - self.state[2]
             velocity = self.state[5]
             observation = np.array([distance_to_middle, velocity])
         else:
@@ -179,7 +179,7 @@ class CarEnv:
 
     
     def reward_front(self):
-        collision_with_middle = (self.state[0] - self.state[2]) < 4.9
+        collision_with_middle = (self.state[2] - self.state[0]) < 4.9
         stopped = self.state[1] < 0.5
         reward = 0
         if stopped:
@@ -192,7 +192,7 @@ class CarEnv:
     
     def reward_rear(self):
         detect_front_stopped = self.state[1] < 0.5
-        collision_with_middle = (self.state[2] - self.state[4]) < 4.9
+        collision_with_middle = (self.state[4] - self.state[2]) < 4.9
         slowing_down = self.state[5] < self.initial_velocity[2]
         reward = 0
         if detect_front_stopped and slowing_down:
@@ -392,6 +392,3 @@ if __name__ == '__main__':
     #     state = env.state
     #     env.history.append(env.state)
     #     time.sleep(dt)
-    
-
-    
