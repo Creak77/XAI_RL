@@ -1,54 +1,3 @@
-'''
-roadmap
-1) Model the dynamical system for the 3 cars. Model the cars as point masses where acceleration is input. The output of the dynamical system should be the distances and velocities of the cars.
-2) Decide on the control algorithm of the middle vehicle
-3) Search literature on highway acceleration data to identify the bounds of the RL action
-4) Train a RL agent (DDPG or similar) to crash the the cars.
-'''
-'''
-Scenario 1A.
- 
-Autonomous vehicle driving between two cars in one lane.
- 
-Failure: Car crash.
- 
-Impact score: The risk of driving between two cars, one at the front and the other at the rear, of the autonomous vehicle.
- 
-Classification: High risk, medium risk, low risk of crashing.
- 
-RL Agents:
-
- Observations:
-
- (1), (2) Distances to front and rear vehicles.
-
- (3), (4) Velocities of front and rear vehicles.
- 
-RL Actions:
-
- (1), (2) Acceleration of front and rear vehicles.
- 
-Chain of events:
-
- (1) Front car decelerates hard
-
- (2) Middle car decelerates according to its own algorithms (can be simple if-else, or PID)
-
- (3) Rear car decelerates
- 
-But cars are too close to avoid a crash.
- 
-Considerations:
-
- (1) The RL action (acceleration) of the front vehicle should be limited to max deceleration or acceleration possible in an average passenger car. Deceleration cannot be instantaneous. There is a minimum deceleration rate related to tire-skid, brakes, etc.
-
- (2) The deceleration of the rear vehicle is also limited by lower tail of average deceleration rates on highways. The rear car has to decelerate to avoid the crash as well; else the scenarios becomes one that cannot be avoided. 
-
- However, the scenario should be: if the front car stops suddenly, and the rear car makes a good effort to stop as well, is the state of the system (consisting of speeds and distances between vehicles) safe enough to avoid a crash?
- 
-Environment/dynamical model: Just use simple point masses for the vehicles. 
-'''
-
 import numpy as np
 import random
 import copy
@@ -60,6 +9,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import time
+import tqdm
 
 
 class CarEnv:
@@ -71,6 +21,8 @@ class CarEnv:
         self.state = None
         self.t = 0
         self.history = []
+        # self.reset()
+
         self.fig, self.ax = plt.subplots(figsize=(10, 2))
         self.car_length = 5.0
         self.car_height = 0.2
@@ -81,6 +33,7 @@ class CarEnv:
         self.ax.set_ylim(-1, self.car_height + 2)
         self.ax.set_xlim(-10, 40)  # Initial range for positioning
         self.ax.set_facecolor('#f2f2f2')  # Light background color for the road
+        
         # Draw road background
         self.ax.fill_betweenx([-1, self.car_height + 1], -100, 10000, color='#e0e0e0', alpha=0.8)
         for i in range(-100, 10000, 5):
@@ -88,17 +41,22 @@ class CarEnv:
             self.ax.plot([i, i + 2], [-0.15, -0.15], color='white', lw=2, alpha=0.8)
             # Draw the second dashed line on top
             self.ax.plot([i, i + 2], [self.car_height + 0.15, self.car_height + 0.15], color='white', lw=2, alpha=0.8)
+
+
         self.ax.set_xlabel('Position (m)', fontsize=12)
         self.ax.set_yticks([])
         self.ax.set_title('Three-Car Simulation', fontsize=16, fontweight='bold')
+
         self.cars = []
         self.labels = []
         for i in range(3):
             car_patch = Rectangle((0, 0), self.car_length, self.car_height, color=self.colors[i], alpha=0.8)
             self.ax.add_patch(car_patch)
             self.cars.append(car_patch)
+
             label = self.ax.text(0, self.car_height + 0.5, f'Car {i+1}', ha='center', va='bottom', fontsize=10, color=self.colors[i])
             self.labels.append(label)
+        
         plt.ion()
         plt.show()
 
@@ -144,6 +102,7 @@ class CarEnv:
                         [0, 0, 1]])
         C = np.eye(6)
         D = np.zeros((6, 3))
+        
         dx = A @ x + B @ u
         y = C @ x + D @ u
         return dx, y
@@ -155,7 +114,7 @@ class CarEnv:
     
     def step(self, actions):
         # actions = [a1, a2, a3]
-        print(actions)
+        # print(actions)
         next_state = self.simulate_car_dynamics(self.state, actions, self.dt)
         self.state = next_state
         self.t += self.dt
@@ -168,16 +127,17 @@ class CarEnv:
         done = self.done()
         return obs_front, obs_rear, reward_front, reward_rear, done
 
+    
     def reward_front(self):
         collision_with_middle = (self.state[4] - self.state[2]) < 4.9
         stopped = self.state[1] < 0.5
         reward = 0
         if stopped:
-            reward = 20
-        if collision_with_middle and stopped:
-            reward = 50
+            reward += 1
+        if collision_with_middle:
+            reward += 2
         else:
-            reward = -1
+            reward -= 10
         return reward
     
     def reward_rear(self):
@@ -186,13 +146,13 @@ class CarEnv:
         slowing_down = self.state[5] < self.initial_velocity[2]
         reward = 0
         if detect_front_stopped and slowing_down:
-            reward = 20
-        # if detect_front_stopped and not slowing_down:
-        #     reward -= 1
+            reward += 2
+        if detect_front_stopped and not slowing_down:
+            reward -= 1
         if collision_with_middle:
-            reward = 50
+            reward += 3
         else:
-            reward = -1
+            reward -= 10
         return reward
         
     def done(self):
@@ -212,9 +172,11 @@ class CarEnv:
             self.labels[i].set_x(d)
             # self.labels[i].set_text(f'Car {i+1} | Pos: {d:.2f}m | Vel: {self.state[1 + i * 2]:.2f} m/s')
             self.labels[i].set_text(f'Car {i+1}|{d:.2f}m|{self.state[1 + i * 2]:.2f}m/s')
+        
         min_pos = min(self.state[0], self.state[2], self.state[4]) - self.car_length - 10
         max_pos = max(self.state[0], self.state[2], self.state[4]) + self.car_length + 10
         self.ax.set_xlim(min_pos, max_pos)
+        
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         
@@ -236,82 +198,22 @@ class PIDController:
         # acceleration limit of +-3 m/s^2
         u = np.clip(u, -3, 3)
         return u
-
-# define the DDPG RL agent
-class DDPG_Car:
-    def __init__(self, state_dim, action_dim):
-        self.actor = Car_Actor(state_dim, action_dim, max_action=3)
-        self.critic = Car_Critic(state_dim, action_dim)
-        self.actor_target = copy.deepcopy(self.actor)
-        self.critic_target = copy.deepcopy(self.critic)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=0.001)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=0.001)
-        self.memory = ReplayBuffer(capacity=100000)
-        self.batch_size = 64
-        self.gamma = 0.99
-        self.tau = 0.005
-
-    def select_action(self, state):
-        state_tensor = torch.FloatTensor(state).unsqueeze(0)
-        action = self.actor(state_tensor).detach().cpu().numpy()[0]
-        # acceleration limit of +-3 m/s^2
-        action = np.clip(action, -4, 3)
-        return action[0]
     
-    def update(self):
-        if len(self.memory) < self.batch_size:
-            return
-        states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
-        states = torch.FloatTensor(states)
-        actions = torch.FloatTensor(actions).unsqueeze(1)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones).unsqueeze(1)
-        # Compute target Q-value
-        with torch.no_grad():
-            next_actions = self.actor_target(next_states)
-            next_Q = self.critic_target(next_states, next_actions)
-            target_Q = rewards + (1 - dones) * self.gamma * next_Q
-        # Get current Q-value estimates
-        current_Q = self.critic(states, actions)
-        # Compute critic loss
-        critic_loss = F.mse_loss(current_Q, target_Q)
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
-        # Compute actor loss
-        actor_actions = self.actor(states)
-        actor_loss = -self.critic(states, actor_actions).mean()
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
-        # Update target networks
-        for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-    
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.push(state, action, reward, next_state, done)
-
-    def save_model(self, actor_path='actor.pth', critic_path='critic.pth'):
-        torch.save(self.actor.state_dict(), actor_path)
-        torch.save(self.critic.state_dict(), critic_path)
-
-if __name__ == '__main__':
-    initial_distance = [0.0, 40.0, 100.0]
-    initial_velocity = [50, 50, 50]
+if __name__ == "__main__":
+    initial_distance = [10, 50, 90]
+    initial_velocity = [50, 60, 50]
     dt = 0.1
     env = CarEnv(initial_distance, initial_velocity, dt)
-
-    a1, a2, a3 = 3, 0, 0
     state = env.reset()
-    done = False
-    while not done:
-        # print(state)
-        action = [a1, a2, a3]
-        obs_front, obs_rear, reward_front, reward_rear, done = env.step(action)
+    pid = PIDController(10, 0.01, 10.5)
+    for _ in range(200):
+        error = state[4] - state[2] - 30
+        action = pid.control(error, dt)
+        print(f'Error: {error:.2f} | Action: {action:.2f}')
+        obs_front, obs_rear, reward_front, reward_rear, done = env.step([0, action, 0])
         env.render()
         state = env.state
-        env.history.append(env.state)
-        time.sleep(dt)
+        if done:
+            break
+        time.sleep(0.1)
+    print("Simulation done")
