@@ -57,6 +57,7 @@ from ddpg_modules import Car_Actor, Car_Critic, ReplayBuffer
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.nn.utils as nn_utils
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import time
@@ -71,11 +72,15 @@ class CarEnv:
         self.state = None
         self.t = 0
         self.history = []
-        self.fig, self.ax = plt.subplots(figsize=(10, 2))
-        self.car_length = 5.0
-        self.car_height = 0.2
-        self.colors = ['red', 'blue', 'green']  # Colors for Car1, Car2, Car3
-        self.init_plot()
+        self.rear_last_speed = 0
+        '''
+        use when rendering
+        # self.fig, self.ax = plt.subplots(figsize=(10, 2))
+        # self.car_length = 5.0
+        # self.car_height = 0.2
+        # self.colors = ['red', 'blue', 'green']  # Colors for Car1, Car2, Car3
+        # self.init_plot()
+        '''
 
     def init_plot(self):
         self.ax.set_ylim(-1, self.car_height + 2)
@@ -111,19 +116,13 @@ class CarEnv:
         # print(self.state)
         return self.state
     
-    def observe(self, car_id):
-        if car_id == 0:
-            # rear car observes its own speed and the distance to the middle car
-            distance_to_middle = self.state[2] - self.state[0]
-            velocity = self.state[1]
-            observation = np.array([distance_to_middle, velocity])
-        elif car_id == 2:
-            # front car observes its own speed and the distance to the middle car
-            distance_to_middle = self.state[4] - self.state[2]
-            velocity = self.state[5]
-            observation = np.array([distance_to_middle, velocity])
-        else:
-            observation = None
+    def observe(self):
+        front_distance = self.state[4] - self.state[2]
+        rear_distance = self.state[2] - self.state[0]
+        front_v = self.state[5]
+        rear_v = self.state[1]
+        middle_v = self.state[3]
+        observation = np.array([front_distance, rear_distance, front_v, rear_v, middle_v])
         return observation
 
     # Define the dynamical system
@@ -155,44 +154,61 @@ class CarEnv:
     
     def step(self, actions):
         # actions = [a1, a2, a3]
-        print(actions)
+        # print(actions)
         next_state = self.simulate_car_dynamics(self.state, actions, self.dt)
+        # avoid negative speeds
+        next_state[1] = np.maximum(next_state[1], 0)
+        next_state[3] = np.maximum(next_state[3], 0)
+        next_state[5] = np.maximum(next_state[5], 0)
         self.state = next_state
         self.t += self.dt
-        # Get observations for front and rear cars
-        obs_rear = self.observe(car_id=0)
-        obs_front = self.observe(car_id=2)
+        obs = self.observe()
         # Rewards for front and rear agents
-        reward_front = self.reward_front()
-        reward_rear = self.reward_rear()
+        reward_front = self.reward_front(actions[2])
+        reward_rear = self.reward_rear(actions[0])
         done = self.done()
-        return obs_front, obs_rear, reward_front, reward_rear, done
+        return obs, reward_front, reward_rear, done
 
-    def reward_front(self):
+    def reward_front(self, acc):
         collision_with_middle = (self.state[4] - self.state[2]) < 4.9
-        stopped = self.state[1] < 0.5
+        slowing = self.state[5] < 10
+        stop = self.state[5] < 0.1
         reward = 0
-        if stopped:
-            reward = 20
-        if collision_with_middle and stopped:
-            reward = 50
+        # if collision_with_middle and slowing:
+        #     reward = 5
+        if collision_with_middle:
+            reward = 1
+        elif slowing:
+            reward = 2
+        elif stop:
+            if acc == 0:
+                reward = 3
+            else:
+                reward = -3
         else:
-            reward = -1
+            reward = -5
         return reward
     
-    def reward_rear(self):
-        detect_front_stopped = self.state[1] < 0.5
+    def reward_rear(self, acc):
+        detect_front_slowing = self.state[5] < 10
         collision_with_middle = (self.state[2] - self.state[0]) < 4.9
-        slowing_down = self.state[5] < self.initial_velocity[2]
+        slowing_down = self.state[1] < self.rear_last_speed
+        self.rear_last_speed = self.state[1]
+        stop = self.state[1] < 0.1
         reward = 0
-        if detect_front_stopped and slowing_down:
-            reward = 20
-        # if detect_front_stopped and not slowing_down:
-        #     reward -= 1
-        if collision_with_middle:
-            reward = 50
+
+        if detect_front_slowing and slowing_down:
+            if collision_with_middle:
+                reward = 3
+            else:
+                reward = 1
+        elif stop:
+            if acc == 0:
+                reward = 2
+            else:
+                reward = -2
         else:
-            reward = -1
+            reward = -5
         return reward
         
     def done(self):
@@ -218,7 +234,6 @@ class CarEnv:
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         
-
 # Define the control algorithm for the middle car
 class PIDController:
     def __init__(self, kp, ki, kd):
@@ -233,17 +248,18 @@ class PIDController:
         derivative = (error - self.prev_error) / dt
         u = self.kp * error + self.ki * self.integral + self.kd * derivative
         self.prev_error = error
-        # acceleration limit of +-3 m/s^2
-        u = np.clip(u, -3, 3)
+        # acceleration limit of -4 to 3 m/s^2
+        u = np.clip(u, -8, 3)
         return u
 
 # define the DDPG RL agent
 class DDPG_Car:
-    def __init__(self, state_dim, action_dim):
-        self.actor = Car_Actor(state_dim, action_dim, max_action=3)
-        self.critic = Car_Critic(state_dim, action_dim)
-        self.actor_target = copy.deepcopy(self.actor)
-        self.critic_target = copy.deepcopy(self.critic)
+    def __init__(self, state_dim, action_dim, device):
+        self.device = device
+        self.actor = Car_Actor(state_dim, action_dim).to(self.device)
+        self.critic = Car_Critic(state_dim, action_dim).to(self.device)
+        self.actor_target = copy.deepcopy(self.actor).to(self.device)
+        self.critic_target = copy.deepcopy(self.critic).to(self.device)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=0.001)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=0.001)
         self.memory = ReplayBuffer(capacity=100000)
@@ -252,21 +268,32 @@ class DDPG_Car:
         self.tau = 0.005
 
     def select_action(self, state):
-        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        # print(state)
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         action = self.actor(state_tensor).detach().cpu().numpy()[0]
-        # acceleration limit of +-3 m/s^2
-        action = np.clip(action, -4, 3)
-        return action[0]
+        # print(action)
+        # Scale a1 from [-1, 1] to [-4, 3]
+        a1 = action[0] * 3.5 - 0.5
+        # Scale a3 from [-1, 1] to [-8, 3]
+        a3 = action[1] * 5.5 - 2.5
+        # front_v = state[2]
+        # rear_v = state[3]
+        # # If velocity is zero, set acceleration to zero
+        # if rear_v == 0 or rear_v < 0:
+        #     a1 = 0
+        # if front_v == 0 or front_v < 0:
+        #     a3 = 0
+        return a1, a3
     
     def update(self):
         if len(self.memory) < self.batch_size:
-            return
+            return None, None
         states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
-        states = torch.FloatTensor(states)
-        actions = torch.FloatTensor(actions).unsqueeze(1)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones).unsqueeze(1)
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.FloatTensor(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
         # Compute target Q-value
         with torch.no_grad():
             next_actions = self.actor_target(next_states)
@@ -278,18 +305,21 @@ class DDPG_Car:
         critic_loss = F.mse_loss(current_Q, target_Q)
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        nn_utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         self.critic_optimizer.step()
         # Compute actor loss
         actor_actions = self.actor(states)
         actor_loss = -self.critic(states, actor_actions).mean()
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        nn_utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_optimizer.step()
         # Update target networks
         for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+        return critic_loss.item(), actor_loss.item()
     
     def remember(self, state, action, reward, next_state, done):
         self.memory.push(state, action, reward, next_state, done)
@@ -298,20 +328,20 @@ class DDPG_Car:
         torch.save(self.actor.state_dict(), actor_path)
         torch.save(self.critic.state_dict(), critic_path)
 
-if __name__ == '__main__':
-    initial_distance = [0.0, 40.0, 100.0]
-    initial_velocity = [50, 50, 50]
-    dt = 0.1
-    env = CarEnv(initial_distance, initial_velocity, dt)
+# if __name__ == '__main__':
+#     initial_distance = [0.0, 40.0, 100.0]
+#     initial_velocity = [50, 50, 50]
+#     dt = 0.1
+#     env = CarEnv(initial_distance, initial_velocity, dt)
 
-    a1, a2, a3 = 3, 0, 0
-    state = env.reset()
-    done = False
-    while not done:
-        # print(state)
-        action = [a1, a2, a3]
-        obs_front, obs_rear, reward_front, reward_rear, done = env.step(action)
-        env.render()
-        state = env.state
-        env.history.append(env.state)
-        time.sleep(dt)
+#     a1, a2, a3 = 3, 0, 0
+#     state = env.reset()
+#     done = False
+#     while not done:
+#         # print(state)
+#         action = [a1, a2, a3]
+#         obs_front, obs_rear, reward_front, reward_rear, done = env.step(action)
+#         env.render()
+#         state = env.state
+#         env.history.append(env.state)
+#         time.sleep(dt)

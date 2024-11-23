@@ -200,14 +200,14 @@ class PIDController:
         return u
     
 if __name__ == "__main__":
-    initial_distance = [10, 50, 90]
+    initial_distance = [10, 80, 170]
     initial_velocity = [50, 60, 50]
     dt = 0.1
     env = CarEnv(initial_distance, initial_velocity, dt)
     state = env.reset()
     pid = PIDController(10, 0.01, 10.5)
     for _ in range(200):
-        error = state[4] - state[2] - 30
+        error = state[4] - state[2] - 50
         action = pid.control(error, dt)
         print(f'Error: {error:.2f} | Action: {action:.2f}')
         obs_front, obs_rear, reward_front, reward_rear, done = env.step([0, action, 0])

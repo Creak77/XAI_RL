@@ -7,17 +7,16 @@ import random
 from collections import deque
 
 class Car_Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, max_action):
+    def __init__(self, state_dim, action_dim):
         super(Car_Actor, self).__init__()
         self.l1 = nn.Linear(state_dim, 64)
         self.l2 = nn.Linear(64, 128)
         self.l3 = nn.Linear(128, action_dim)
-        self.max_action = max_action
 
     def forward(self, state):
         a = F.relu(self.l1(state))
         a = F.relu(self.l2(a))
-        return torch.tanh(self.l3(a)) * self.max_action
+        return F.tanh(self.l3(a))
     
 class Car_Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
