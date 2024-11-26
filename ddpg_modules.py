@@ -9,9 +9,9 @@ from collections import deque
 class Car_Actor(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Car_Actor, self).__init__()
-        self.l1 = nn.Linear(state_dim, 64)
-        self.l2 = nn.Linear(64, 128)
-        self.l3 = nn.Linear(128, action_dim)
+        self.l1 = nn.Linear(state_dim, 128)
+        self.l2 = nn.Linear(128, 256)
+        self.l3 = nn.Linear(256, action_dim)
 
     def forward(self, state):
         a = F.relu(self.l1(state))
@@ -21,9 +21,9 @@ class Car_Actor(nn.Module):
 class Car_Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Car_Critic, self).__init__()
-        self.l1 = nn.Linear(state_dim + action_dim, 64)
-        self.l2 = nn.Linear(64, 128)
-        self.l3 = nn.Linear(128, 1)
+        self.l1 = nn.Linear(state_dim + action_dim, 128)
+        self.l2 = nn.Linear(128, 256)
+        self.l3 = nn.Linear(256, 1)
 
     def forward(self, state, action):
         sa = torch.cat([state, action], 1)

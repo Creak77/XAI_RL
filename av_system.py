@@ -73,6 +73,7 @@ class CarEnv:
         self.t = 0
         self.history = []
         self.rear_last_speed = 0
+        self.front_last_speed = 0
         '''
         use when rendering
         # self.fig, self.ax = plt.subplots(figsize=(10, 2))
@@ -81,6 +82,11 @@ class CarEnv:
         # self.colors = ['red', 'blue', 'green']  # Colors for Car1, Car2, Car3
         # self.init_plot()
         '''
+        # self.fig, self.ax = plt.subplots(figsize=(10, 2))
+        # self.car_length = 5.0
+        # self.car_height = 0.2
+        # self.colors = ['red', 'blue', 'green']  # Colors for Car1, Car2, Car3
+        # self.init_plot()
 
     def init_plot(self):
         self.ax.set_ylim(-1, self.car_height + 2)
@@ -113,6 +119,8 @@ class CarEnv:
         d3, v3 = self.initial_distance[2], self.initial_velocity[2]
         self.state = np.array([d1, v1, d2, v2, d3, v3])
         self.t = 0
+        self.rear_last_speed = 0
+        self.front_last_speed = 0
         # print(self.state)
         return self.state
     
@@ -160,6 +168,14 @@ class CarEnv:
         next_state[1] = np.maximum(next_state[1], 0)
         next_state[3] = np.maximum(next_state[3], 0)
         next_state[5] = np.maximum(next_state[5], 0)
+        # avoid negative distances change
+        rear_d_c = np.maximum(next_state[0] - self.state[0], 0)
+        front_d_c = np.maximum(next_state[2] - self.state[2], 0)
+        middle_d_c = np.maximum(next_state[4] - self.state[4], 0)
+        next_state[0] = self.state[0] + rear_d_c
+        next_state[2] = self.state[2] + front_d_c
+        next_state[4] = self.state[4] + middle_d_c
+        # print(next_state)
         self.state = next_state
         self.t += self.dt
         obs = self.observe()
@@ -168,51 +184,54 @@ class CarEnv:
         reward_rear = self.reward_rear(actions[0])
         done = self.done()
         return obs, reward_front, reward_rear, done
-
+    
     def reward_front(self, acc):
-        collision_with_middle = (self.state[4] - self.state[2]) < 4.9
-        slowing = self.state[5] < 10
-        stop = self.state[5] < 0.1
+        sudden_stop_acc_threshold = -6.0  # Threshold for sudden stop acceleration (m/s^2)
         reward = 0
-        # if collision_with_middle and slowing:
-        #     reward = 5
-        if collision_with_middle:
-            reward = 1
-        elif slowing:
-            reward = 2
-        elif stop:
-            if acc == 0:
-                reward = 3
+        if self.state[5] < 0.1:
+            if abs(acc) <= 0.1:
+                reward = 5
             else:
-                reward = -3
+                reward = -5
+        elif acc <= sudden_stop_acc_threshold:
+            reward = 10  # High reward for performing a sudden stop
         else:
-            reward = -5
+            reward = -1  # Penalty for not performing a sudden stop
         return reward
     
     def reward_rear(self, acc):
-        detect_front_slowing = self.state[5] < 10
-        collision_with_middle = (self.state[2] - self.state[0]) < 4.9
-        slowing_down = self.state[1] < self.rear_last_speed
+        delta_v_front = self.front_last_speed - self.state[5]
+        self.front_last_speed = self.state[5]
+        delta_v_threshold = 5
+        slowing = self.state[1] < self.rear_last_speed
         self.rear_last_speed = self.state[1]
-        stop = self.state[1] < 0.1
         reward = 0
-
-        if detect_front_slowing and slowing_down:
-            if collision_with_middle:
-                reward = 3
+        if self.state[1] < 0.1:
+            if abs(acc) <= 0.1:
+                reward = 5
             else:
-                reward = 1
-        elif stop:
-            if acc == 0:
-                reward = 2
+                reward = -5
+        elif delta_v_front >= delta_v_threshold:
+            # Front car is slowing down significantly
+            if slowing:
+                reward = 10  # Reward for slowing down in response
             else:
-                reward = -2
+                reward = -10  # Penalty for not slowing down
         else:
-            reward = -5
+            # Front car is not slowing down significantly
+            if 0 < acc < 1:
+                reward = 2  # Reward for maintaining normal speed
+            else:
+                reward = -2 # Penalty for wired driving
         return reward
         
     def done(self):
-        if self.t >= 20 or self.check_collision():
+        if self.t >= 20 or self.check_collision() or self.check_stop():
+            return True
+        return False
+    
+    def check_stop(self):
+        if self.state[1] < 0.1 and self.state[3] < 0.1 and self.state[5] < 0.1:
             return True
         return False
         

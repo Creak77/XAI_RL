@@ -42,7 +42,7 @@ def train_car_ddpg(num_episodes=1000):
             a1, a3 = ddpg_agent.select_action(obs)
             a2 = pid.control(error, dt)
             actions = [a1, a2, a3]
-            if (episode + 1) > 900:
+            if (episode + 1) > 1900:
                 # print(f'Actions: {actions}')
                 logging.info(f'Actions: {actions}')
             next_obs, reward_front, reward_rear, done = env.step(actions)
@@ -58,7 +58,7 @@ def train_car_ddpg(num_episodes=1000):
             state = env.state
             env.history.append(env.state)
             time.sleep(dt)
-        if (episode + 1) % 100 == 0 and (episode + 1) >= 500:
+        if (episode + 1) % 100 == 0 and (episode + 1) >= 1500:
             ddpg_agent.save_model(f'car_ddpg_actor_{episode+1}.pth', f'car_ddpg_critic_{episode+1}.pth')
         logging.info(f'Episode {episode+1}, Critic loss: {c_loss/len(env.history)}, Actor loss: {a_loss/len(env.history)}')
         logging.info(f'Episode {episode+1}, Reward: {total_reward}')
@@ -70,11 +70,11 @@ def train_car_ddpg(num_episodes=1000):
     plt.plot(loss[:, 0], label='Critic loss')
     plt.plot(loss[:, 1], label='Actor loss')
     plt.legend()
-    plt.show()
+    plt.savefig('car_ddpg_loss.png')
     # plot reward
     plt.plot(reward_plot)
-    plt.show()
+    plt.savefig('car_ddpg_reward.png')
 
 
 if __name__ == '__main__':
-    train_car_ddpg()
+    train_car_ddpg(2000)
