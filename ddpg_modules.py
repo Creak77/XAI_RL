@@ -11,25 +11,29 @@ class Car_Actor(nn.Module):
         super(Car_Actor, self).__init__()
         self.l1 = nn.Linear(state_dim, 128)
         self.l2 = nn.Linear(128, 256)
-        self.l3 = nn.Linear(256, action_dim)
+        self.l3 = nn.Linear(256, 300)
+        self.l4 = nn.Linear(300, action_dim)
 
     def forward(self, state):
         a = F.relu(self.l1(state))
         a = F.relu(self.l2(a))
-        return F.tanh(self.l3(a))
+        a = F.relu(self.l3(a))
+        return F.tanh(self.l4(a))
     
 class Car_Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Car_Critic, self).__init__()
         self.l1 = nn.Linear(state_dim + action_dim, 128)
         self.l2 = nn.Linear(128, 256)
-        self.l3 = nn.Linear(256, 1)
+        self.l3 = nn.Linear(256, 300)
+        self.l4 = nn.Linear(300, 1)
 
     def forward(self, state, action):
         sa = torch.cat([state, action], 1)
         q = F.relu(self.l1(sa))
         q = F.relu(self.l2(q))
-        return self.l3(q)
+        q = F.relu(self.l3(q))
+        return self.l4(q)
     
 class ReplayBuffer:
     def __init__(self, capacity=1000000):

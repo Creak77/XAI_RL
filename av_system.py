@@ -64,7 +64,7 @@ import time
 
 
 class CarEnv:
-    def __init__(self, initial_distance, initial_velocity, dt):
+    def __init__(self, initial_distance, initial_velocity, dt, render=False):
         # d is center of mass of the car, car length is 5m
         self.initial_distance = initial_distance
         self.initial_velocity = initial_velocity
@@ -73,20 +73,13 @@ class CarEnv:
         self.t = 0
         self.history = []
         self.rear_last_speed = 0
-        self.front_last_speed = 0
-        '''
-        use when rendering
-        # self.fig, self.ax = plt.subplots(figsize=(10, 2))
-        # self.car_length = 5.0
-        # self.car_height = 0.2
-        # self.colors = ['red', 'blue', 'green']  # Colors for Car1, Car2, Car3
-        # self.init_plot()
-        '''
-        # self.fig, self.ax = plt.subplots(figsize=(10, 2))
-        # self.car_length = 5.0
-        # self.car_height = 0.2
-        # self.colors = ['red', 'blue', 'green']  # Colors for Car1, Car2, Car3
-        # self.init_plot()
+        self.front_initial_v = 0
+        if render:
+            self.fig, self.ax = plt.subplots(figsize=(10, 2))
+            self.car_length = 5.0
+            self.car_height = 0.2
+            self.colors = ['red', 'blue', 'green'] # Colors for Car1, Car2, Car3
+            self.init_plot()
 
     def init_plot(self):
         self.ax.set_ylim(-1, self.car_height + 2)
@@ -120,8 +113,7 @@ class CarEnv:
         self.state = np.array([d1, v1, d2, v2, d3, v3])
         self.t = 0
         self.rear_last_speed = 0
-        self.front_last_speed = 0
-        # print(self.state)
+        self.front_initial_v = v3
         return self.state
     
     def observe(self):
@@ -161,8 +153,6 @@ class CarEnv:
         return sol.y[:, -1]
     
     def step(self, actions):
-        # actions = [a1, a2, a3]
-        # print(actions)
         next_state = self.simulate_car_dynamics(self.state, actions, self.dt)
         # avoid negative speeds
         next_state[1] = np.maximum(next_state[1], 0)
@@ -175,7 +165,7 @@ class CarEnv:
         next_state[0] = self.state[0] + rear_d_c
         next_state[2] = self.state[2] + front_d_c
         next_state[4] = self.state[4] + middle_d_c
-        # print(next_state)
+
         self.state = next_state
         self.t += self.dt
         obs = self.observe()
@@ -186,45 +176,33 @@ class CarEnv:
         return obs, reward_front, reward_rear, done
     
     def reward_front(self, acc):
-        sudden_stop_acc_threshold = -6.0  # Threshold for sudden stop acceleration (m/s^2)
+        sudden_stop_acc_threshold = -7.0  # Threshold for sudden stop acceleration (m/s^2)
         reward = 0
-        if self.state[5] < 0.1:
-            if abs(acc) <= 0.1:
-                reward = 5
-            else:
-                reward = -5
-        elif acc <= sudden_stop_acc_threshold:
-            reward = 10  # High reward for performing a sudden stop
+        if acc <= sudden_stop_acc_threshold:
+            reward = 1  # High reward for performing a sudden stop
         else:
-            reward = -1  # Penalty for not performing a sudden stop
+            reward = -2  # Penalty for not performing a sudden stop
         return reward
     
     def reward_rear(self, acc):
-        delta_v_front = self.front_last_speed - self.state[5]
-        self.front_last_speed = self.state[5]
+        delta_v_front = self.front_initial_v - self.state[5]
         delta_v_threshold = 5
-        slowing = self.state[1] < self.rear_last_speed
         self.rear_last_speed = self.state[1]
         reward = 0
-        if self.state[1] < 0.1:
-            if abs(acc) <= 0.1:
-                reward = 5
-            else:
-                reward = -5
-        elif delta_v_front >= delta_v_threshold:
+        if delta_v_front >= delta_v_threshold:
             # Front car is slowing down significantly
-            if slowing:
-                reward = 10  # Reward for slowing down in response
+            if acc < -3.5:
+                reward = 1  # Reward for slowing down in response
             else:
-                reward = -10  # Penalty for not slowing down
+                reward = -2  # Penalty for not slowing down
         else:
             # Front car is not slowing down significantly
-            if 0 < acc < 1:
-                reward = 2  # Reward for maintaining normal speed
+            if acc > 0:
+                reward = 1  # Reward for maintaining normal speed
             else:
-                reward = -2 # Penalty for wired driving
+                reward = -3 # Penalty for wired driving
         return reward
-        
+
     def done(self):
         if self.t >= 20 or self.check_collision() or self.check_stop():
             return True
@@ -261,12 +239,17 @@ class PIDController:
         self.kd = kd
         self.prev_error = 0
         self.integral = 0
+        
+    def delay(self, error, delay):
+        delay_error = np.exp(-delay) * error
+        return delay_error
 
     def control(self, error, dt):
-        self.integral += error * dt
-        derivative = (error - self.prev_error) / dt
-        u = self.kp * error + self.ki * self.integral + self.kd * derivative
-        self.prev_error = error
+        delay_error = self.delay(error, 0.5)
+        self.integral += delay_error * dt
+        derivative = (delay_error - self.prev_error) / dt
+        u = self.kp * delay_error + self.ki * self.integral + self.kd * derivative
+        self.prev_error = delay_error
         # acceleration limit of -4 to 3 m/s^2
         u = np.clip(u, -8, 3)
         return u
@@ -279,29 +262,27 @@ class DDPG_Car:
         self.critic = Car_Critic(state_dim, action_dim).to(self.device)
         self.actor_target = copy.deepcopy(self.actor).to(self.device)
         self.critic_target = copy.deepcopy(self.critic).to(self.device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=0.001)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=0.001)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=0.0001)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=0.0001)
         self.memory = ReplayBuffer(capacity=100000)
-        self.batch_size = 64
+        self.batch_size = 128
         self.gamma = 0.99
         self.tau = 0.005
-
-    def select_action(self, state):
+    
+    def select_action(self, state, mode='normal'):
         # print(state)
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         action = self.actor(state_tensor).detach().cpu().numpy()[0]
-        # print(action)
-        # Scale a1 from [-1, 1] to [-4, 3]
-        a1 = action[0] * 3.5 - 0.5
-        # Scale a3 from [-1, 1] to [-8, 3]
-        a3 = action[1] * 5.5 - 2.5
-        # front_v = state[2]
-        # rear_v = state[3]
-        # # If velocity is zero, set acceleration to zero
-        # if rear_v == 0 or rear_v < 0:
-        #     a1 = 0
-        # if front_v == 0 or front_v < 0:
-        #     a3 = 0
+        if mode == 'normal':
+            # Scale a1 from [-1, 1] to [-4, 2]
+            a1 = action[0] * 3 - 1
+            # Scale a3 from [-1, 1] to [-8, 2]
+            a3 = action[1] * 5 - 3
+        if mode == 'aggresive':
+            # Scale a1 from [-1, 1] to [-6, 2]
+            a1 = action[0] * 4 - 2
+            # Scale a3 from [-1, 1] to [-8, 2]
+            a3 = action[1] * 5 - 3
         return a1, a3
     
     def update(self):
@@ -346,21 +327,3 @@ class DDPG_Car:
     def save_model(self, actor_path='actor.pth', critic_path='critic.pth'):
         torch.save(self.actor.state_dict(), actor_path)
         torch.save(self.critic.state_dict(), critic_path)
-
-# if __name__ == '__main__':
-#     initial_distance = [0.0, 40.0, 100.0]
-#     initial_velocity = [50, 50, 50]
-#     dt = 0.1
-#     env = CarEnv(initial_distance, initial_velocity, dt)
-
-#     a1, a2, a3 = 3, 0, 0
-#     state = env.reset()
-#     done = False
-#     while not done:
-#         # print(state)
-#         action = [a1, a2, a3]
-#         obs_front, obs_rear, reward_front, reward_rear, done = env.step(action)
-#         env.render()
-#         state = env.state
-#         env.history.append(env.state)
-#         time.sleep(dt)
