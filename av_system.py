@@ -42,7 +42,6 @@ Environment/dynamical model: Just use simple point masses for the vehicles.
 '''
 
 import numpy as np
-import random
 import copy
 from scipy.integrate import solve_ivp
 from ddpg_modules import Car_Actor, Car_Critic, ReplayBuffer
@@ -52,8 +51,6 @@ import torch.optim as optim
 import torch.nn.utils as nn_utils
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-import time
-
 
 class CarEnv:
     def __init__(self, initial_distance, initial_velocity, dt, render=False):
