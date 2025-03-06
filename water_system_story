@@ -1,0 +1,21 @@
+Yes, a pump is often involved in dense filtration systems. The pump helps to move the fluid (liquid or gas) through the densely packed filter medium, ensuring that it passes through the filter at the required flow rate and pressure. This is particularly important in industrial applications where large volumes of fluid need to be filtered efficiently.
+As for the impact of added chemicals on pipe pressure, it can indeed result in more pipe pressure. Here are a few ways this might happen:
+Increased Viscosity: Some chemicals can increase the viscosity of the fluid, making it thicker and harder to pump. This increased resistance can result in higher pressure within the pipes.
+Chemical Reactions: If the added chemicals cause particles to clump together into larger aggregates, these can create more resistance in the filter and the pipes, leading to increased pressure.
+
+The filtration plant uses a pump to push water through a filter. 
+The pump is controlled with a PID controller to maintain water flow rate.
+A Chemical Dosing Pump or Chemical Feeder adds chemicals to the water prior to passing through the filter to aid in filtration.
+However, compromised dosing pump or feeder operation can increase the viscosity of the infeed water and increase pipe pressures.
+Increased pipe pressure can result in burst pipes.
+
+The filtration plant uses a pump to push water through a filter. 
+1. Chemical Dosing (↑ Increase It to Increase Viscosity)
+	Overdosing coagulants thickens the water.
+	This makes it harder to pass through the membrane, increasing pipe pressure.
+2. Water Temperature (↓ Lower it to Increase Viscosity)
+	Lower temperature right before ultrafiltration stage increases water viscosity, reducing membrane permeability.
+	The pump compensates by increasing pressure, which can stress the pipes.
+3. Pump Control (PID Maintains Flow Rate)
+	If the PID controller forces a constant or increase flow rate, the pump must increase pressure as viscosity rises.
+	This can drive pressures to unsafe levels, potentially causing membrane damage or pipe bursts.

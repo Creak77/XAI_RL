@@ -19,32 +19,24 @@ Classification: High risk, medium risk, low risk of crashing.
 RL Agents:
 
  Observations:
-
  (1), (2) Distances to front and rear vehicles.
-
  (3), (4) Velocities of front and rear vehicles.
  
 RL Actions:
-
  (1), (2) Acceleration of front and rear vehicles.
  
 Chain of events:
-
  (1) Front car decelerates hard
-
  (2) Middle car decelerates according to its own algorithms (can be simple if-else, or PID)
-
  (3) Rear car decelerates
  
 But cars are too close to avoid a crash.
  
 Considerations:
-
  (1) The RL action (acceleration) of the front vehicle should be limited to max deceleration or acceleration possible in an average passenger car. Deceleration cannot be instantaneous. There is a minimum deceleration rate related to tire-skid, brakes, etc.
-
  (2) The deceleration of the rear vehicle is also limited by lower tail of average deceleration rates on highways. The rear car has to decelerate to avoid the crash as well; else the scenarios becomes one that cannot be avoided. 
 
- However, the scenario should be: if the front car stops suddenly, and the rear car makes a good effort to stop as well, is the state of the system (consisting of speeds and distances between vehicles) safe enough to avoid a crash?
+However, the scenario should be: if the front car stops suddenly, and the rear car makes a good effort to stop as well, is the state of the system (consisting of speeds and distances between vehicles) safe enough to avoid a crash?
  
 Environment/dynamical model: Just use simple point masses for the vehicles. 
 '''
