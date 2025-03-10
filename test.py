@@ -174,11 +174,11 @@ def plot_Q(mode='acc'):
         plt.show()
 
 if __name__ == '__main__':
-    # rear_initial_distance = -10
-    # middle_initial_distance = 30
-    # front_initial_distance = 90
-    # initial_distance = [rear_initial_distance, middle_initial_distance, front_initial_distance]
-    # initial_velocity = [22, 24, 24]
-    # test_car_ddpg(mode='aggresive', initial_distance=initial_distance, initial_velocity=initial_velocity, render=False)
-    plot_Q(mode='acc')
+    rear_initial_distance = -10
+    middle_initial_distance = 30
+    front_initial_distance = 90
+    initial_distance = [rear_initial_distance, middle_initial_distance, front_initial_distance]
+    initial_velocity = [22, 24, 24]
+    test_car_ddpg(mode='aggresive', initial_distance=initial_distance, initial_velocity=initial_velocity, render=False)
+    #plot_Q(mode='acc')
     #plot_Q(mode='dis')

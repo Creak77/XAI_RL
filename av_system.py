@@ -44,7 +44,7 @@ Environment/dynamical model: Just use simple point masses for the vehicles.
 import numpy as np
 import copy
 from scipy.integrate import solve_ivp
-from ddpg_modules import Car_Actor, Car_Critic, ReplayBuffer
+from ddpg_modules import Actor, Critic, ReplayBuffer
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -247,8 +247,8 @@ class PIDController:
 class DDPG_Car:
     def __init__(self, state_dim, action_dim, device):
         self.device = device
-        self.actor = Car_Actor(state_dim, action_dim).to(self.device)
-        self.critic = Car_Critic(state_dim, action_dim).to(self.device)
+        self.actor = Actor(state_dim, action_dim).to(self.device)
+        self.critic = Critic(state_dim, action_dim).to(self.device)
         self.actor_target = copy.deepcopy(self.actor).to(self.device)
         self.critic_target = copy.deepcopy(self.critic).to(self.device)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=0.0001)
