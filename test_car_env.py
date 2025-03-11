@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from av_system import DDPG_Car, CarEnv, PIDController
+from av_system import DDPG_Car, CarEnv, Car_PIDController
 import time
 
 def test_car_ddpg(mode, initial_distance=[-10, 30, 90], initial_velocity=[22, 24, 24], render=False):
@@ -26,7 +26,7 @@ def test_car_ddpg(mode, initial_distance=[-10, 30, 90], initial_velocity=[22, 24
     safe_distance = initial_velocity[1] * 2
     dt = 0.1
     env = CarEnv(initial_distance, initial_velocity, dt, render=render)
-    pid = PIDController(10, 0.01, 10.5)
+    pid = Car_PIDController(10, 0.01, 10.5)
     state = env.reset()
     done = False
     episode_reward = 0

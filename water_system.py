@@ -52,18 +52,23 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.nn.utils as nn_utils
 
-class WaterSystem:
-    def __init__(self, initial_state, dt=0.1):
+class WaterEnv:
+    def __init__(self, initial_state, initial_temperature, dt=1):
         self.initial_state = initial_state
+        self.temperature = initial_temperature # Water temperature in °C
         self.dt = dt
         self.time = 0.0
-        self.last_action = np.array([0, 0, 0])
+        #self.last_action = np.array([0, 0, 0])
         self.last_state = self.initial_state.copy()
         self.pressure_limit = 10.0  # Safety limit for pressure
+        self.history = []
 
     def reset(self):
         self.state = self.initial_state.copy()  # [Flow (L/s), Pressure (bar), Viscosity]
-        return self.state      
+        return self.state    
+
+    def observe(self):
+        return self.state  
 
     def compute_pump_pressure(self):
         """
@@ -123,6 +128,7 @@ class WaterSystem:
 
         # Compute individual effects with proper unit conversions
         pressure_increase = self.compute_pump_pressure()     # Increase in pressure due to pump
+        #print(f'pressure_increase: {pressure_increase}')
         friction_loss = self.compute_flow_decay()            # Pressure drop due to friction
         chem_effect = self.compute_chemical_effect()  # Target viscosity multiplier
         # Constants defining system behavior
@@ -163,8 +169,11 @@ class WaterSystem:
         return new_state
 
     def step(self, actions):
-        self.last_action = actions
+        #self.last_action = actions
         self.last_state = self.state
+        if self.temperature < 5:
+            actions[2] = 0  # Stop cooling if temperature is too low
+        self.temperature += actions[2] * self.dt
         self.state = self.simulate_water_dynamics(actions, self.dt)
         reward = self.reward()
         done = self.done()
@@ -177,7 +186,7 @@ class WaterSystem:
 
     def done(self):
         flow_rate, pressure, viscosity = self.state
-        if flow_rate < 5 or pressure > self.pressure_limit or viscosity > 5 or pressure < 0:
+        if flow_rate < 5 or flow_rate > 25 or pressure > self.pressure_limit or pressure < 0 or viscosity > 5 or viscosity < 0:
             return True
         return False
 
@@ -185,8 +194,8 @@ class WaterSystem:
         flow_rate, pressure, viscosity = self.state
         print(f"Time: {self.time:.2f} sec | Flow Rate: {flow_rate:.2f} L/s | Pressure: {pressure:.2f} | Viscosity: {viscosity:.2f}")
 
-class PIDController:
-    def __init__(self, kp, ki, kd, setpoint, output_limits=(0, 100)):
+class Water_PIDController:
+    def __init__(self, kp, ki, kd, setpoint, output_limits=(0, 10)):
         self.kp = kp
         self.ki = ki
         self.kd = kd
@@ -207,7 +216,7 @@ class DDPG_Water:
     def __init__(self, state_dim, action_dim, device):
         self.device = device
         self.actor = Actor(state_dim, action_dim).to(self.device)
-        self.critic = Actor(state_dim, action_dim).to(self.device)
+        self.critic = Critic(state_dim, action_dim).to(self.device)
         self.actor_target = copy.deepcopy(self.actor).to(self.device)
         self.critic_target = copy.deepcopy(self.critic).to(self.device)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=0.0001)
@@ -221,11 +230,11 @@ class DDPG_Water:
         # print(state)
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         action = self.actor(state_tensor).detach().cpu().numpy()[0]
-        # Scale a1 from [-1, 1] to [-0.1, 0.1]
-        a1 = action[0] * 0.1
-        # Scale a3 from [-1, 1] to [-5, 5]
-        a3 = action[1] * 5
-        return a1, a3
+        # Scale chemical_addition from [-1, 1] to [-0.1, 0.1]
+        chemical_addition = action[0] * 0.1
+        # Scale temperature_control from [-1, 1] to [-5, 5]
+        temperature_control = action[1] * 5
+        return chemical_addition, temperature_control
     
     def update(self):
         if len(self.memory) < self.batch_size:
@@ -273,9 +282,10 @@ class DDPG_Water:
 
 if __name__ == "__main__":
     # Initial state: [Flow rate (L/s), Pressure (bar), Viscosity (cP)]
-    initial_state = np.array([10.0, 4.0, 1])
-    water_system = WaterSystem(initial_state, dt=1)
-    pid_controller = PIDController(kp=1.1, ki=0.18, kd=0.01, setpoint=10.2)
+    initial_state = np.array([10.0, 4.0, 0])
+    initial_temperature = 60.0
+    water_system = WaterEnv(initial_state, initial_temperature, dt=1)
+    pid_controller = Water_PIDController(kp=1.6, ki=0.18, kd=0.01, setpoint=10)
     water_system.reset()
 
     states = []

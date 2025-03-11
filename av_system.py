@@ -221,7 +221,7 @@ class CarEnv:
         self.fig.canvas.flush_events()
         
 # Define the control algorithm for the middle car
-class PIDController:
+class Car_PIDController:
     def __init__(self, kp, ki, kd):
         self.kp = kp
         self.ki = ki
